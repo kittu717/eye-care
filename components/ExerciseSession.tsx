@@ -18,6 +18,27 @@ export const ExerciseSession: React.FC<ExerciseSessionProps> = ({ routine, onCom
   const [isBreak, setIsBreak] = useState(false);
   
   const currentExercise = routine.exercises[currentIndex];
+
+  const playSound = useCallback((frequency = 440, type: OscillatorType = 'sine', duration = 0.1) => {
+    if (!settings.soundEnabled) return;
+    try {
+      const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {
+      console.warn("Audio Context failed", e);
+    }
+  }, [settings.soundEnabled]);
   
   const speak = useCallback((text: string, interrupt = true) => {
     if (!settings.voiceGuidanceEnabled || !('speechSynthesis' in window)) return;
@@ -29,21 +50,24 @@ export const ExerciseSession: React.FC<ExerciseSessionProps> = ({ routine, onCom
 
   useEffect(() => {
     if (isBreak) {
+        playSound(660, 'sine', 0.2);
         speak("Take a short break.", false);
     } else {
+        playSound(880, 'sine', 0.1);
         speak(`${currentExercise.name}. ${currentExercise.instructionText || currentExercise.description}`);
     }
-  }, [currentIndex, isBreak, currentExercise, speak]);
+  }, [currentIndex, isBreak, currentExercise, speak, playSound]);
 
   const nextExercise = useCallback(() => {
     if (currentIndex < routine.exercises.length - 1) {
       setIsBreak(true);
       setTimeLeft(5); 
     } else {
+      playSound(1200, 'sine', 0.5);
       speak("Session complete. Great job.");
       onComplete();
     }
-  }, [currentIndex, routine.exercises.length, onComplete, speak]);
+  }, [currentIndex, routine.exercises.length, onComplete, speak, playSound]);
 
   const startNext = useCallback(() => {
     setIsBreak(false);
@@ -54,13 +78,21 @@ export const ExerciseSession: React.FC<ExerciseSessionProps> = ({ routine, onCom
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isPlaying && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+           const next = prev - 1;
+           if (next <= 3 && next > 0 && !isBreak) {
+               playSound(440, 'sine', 0.05);
+           }
+           return next;
+        });
+      }, 1000);
     } else if (isPlaying && timeLeft === 0) {
       if (isBreak) startNext();
       else nextExercise();
     }
     return () => clearInterval(interval);
-  }, [isPlaying, timeLeft, isBreak, nextExercise, startNext]);
+  }, [isPlaying, timeLeft, isBreak, nextExercise, startNext, playSound]);
 
   useEffect(() => {
     setIsPlaying(true);
@@ -124,10 +156,10 @@ export const ExerciseSession: React.FC<ExerciseSessionProps> = ({ routine, onCom
             </div>
             
             <div className="flex items-center gap-4">
-                <button onClick={() => setIsPlaying(!isPlaying)} className="w-16 h-16 rounded-3xl bg-white text-slate-900 flex items-center justify-center shadow-xl active:scale-90 transition-transform">
+                <button onClick={() => { setIsPlaying(!isPlaying); playSound(500, 'sine', 0.05); }} className="w-16 h-16 rounded-3xl bg-white text-slate-900 flex items-center justify-center shadow-xl active:scale-90 transition-transform">
                     {isPlaying ? <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg> : <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z"/></svg>}
                 </button>
-                <button onClick={() => { window.speechSynthesis.cancel(); if (currentIndex < routine.exercises.length - 1) nextExercise(); else onComplete(); }} className="w-14 h-14 rounded-3xl bg-slate-800 text-white flex items-center justify-center border border-slate-700 active:scale-90 transition-transform">
+                <button onClick={() => { window.speechSynthesis.cancel(); playSound(700, 'sine', 0.05); if (currentIndex < routine.exercises.length - 1) nextExercise(); else onComplete(); }} className="w-14 h-14 rounded-3xl bg-slate-800 text-white flex items-center justify-center border border-slate-700 active:scale-90 transition-transform">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </button>
             </div>
